@@ -1,0 +1,227 @@
+' -- ---------------------------------------------------------------------- --
+' ZX FontEdit - ZX Spectrum application for font and UDG editing
+'
+' Boriel ZX Basic version - based on zx-fontedit
+'
+' -- ---------------------------------------------------------------------- --
+
+#include <memcopy.bas>
+
+' -- ---------------------------------------------------------------------- --
+' Colour constants
+
+DIM BLACK AS UByte = 0
+DIM WHITE AS UByte = 7
+
+' Screen position constants
+' DIM PLOT_WIDTH AS Integer = 256
+#define PLOT_WIDTH 256
+#define PLOT_HEIGHT 192
+
+#define EDIT_PANEL_TOP 1
+#define EDIT_PANEL_LEFT 11
+#define EDIT_PANEL_WIDTH 10
+#define EDIT_PANEL_HEIGHT 10
+#define PREVIEW_PANEL_LEFT 26
+#define PREVIEW_PANEL_TOP 7
+#define PREVIEW_PANEL_WIDTH 3
+#define PREVIEW_PANEL_HEIGHT 3
+#define PREVIEW_PANEL_X 216  ' (26+1)*8 = x coord of top left
+#define PREVIEW_PANEL_Y 64   ' (7+1)*8  = y coord of top left
+
+#define NOTE_PANEL_TOP 20
+#define NOTE_PANEL_LEFT 0
+
+#define USER_FONT_AREA $F900
+#define FONT_SIZE 768
+#define FONT_OFFSET 256   ' 32 * 8 = ASCII 00..31
+#define CHAR_OFFSET CODE(" ")
+
+DIM sys_chars AS UInteger AT $5C36  ' 'CHARS' sytem variable - pointer to font
+#define SYS_CHARS_DEFAULT  $3C00
+
+' -- ---------------------------------------------------------------------- --
+' on-screen location for each character - starting with ' '
+' array [96 printable characters x 2 values] = {row, col}
+
+DIM char_locn(0 TO 95, 0 TO 1) AS UByte => {          _
+  {16, 14}, {16, 15}, {16, 16}, {16, 17}, {16, 18}, {16, 19},  _ '  !"#$%
+  {16, 20}, {16, 21}, {16, 22}, {16, 23}, {16, 24}, {16, 25},  _ ' &'()*+
+  {16, 26}, {16, 27}, {16, 28}, {16, 29},                      _ ' ,-./
+  {16, 2},  {16, 3},  {16, 4},  {16, 5},  {16, 6},  {16, 7},   _ ' 012345
+  {16, 8},  {16, 9},  {16, 10}, {16, 11},                      _ ' 6789
+  {18, 2},  {18, 3},  {18, 4},  {18, 5},  {18, 6},  {18, 7},   _ ' :;<=>?
+  {18, 8},  {12, 2},  {12, 3},  {12, 4},  {12, 5},  {12, 6},   _ ' @ABCDE
+  {12, 7},  {12, 8},  {12, 9},  {12, 10}, {12, 11}, {12, 12},  _ ' FGHIJK
+  {12, 13}, {12, 14}, {12, 15}, {12, 16}, {12, 17}, {12, 18},  _ ' LMNOPQ
+  {12, 19}, {12, 20}, {12, 21}, {12, 22}, {12, 23}, {12, 24},  _ ' RSTUVW
+  {12, 25}, {12, 26}, {12, 27},                                _ ' XYZ
+  {18, 10}, {18, 11}, {18, 12}, {18, 13}, {18, 14}, {18, 15},  _ ' [\]^_£
+  {14, 2},  {14, 3},  {14, 4},  {14, 5},  {14, 6},  {14, 7},   _ ' abcdef
+  {14, 8},  {14, 9},  {14, 10}, {14, 11}, {14, 12}, {14, 13},  _ ' ghijkl
+  {14, 14}, {14, 15}, {14, 16}, {14, 17}, {14, 18}, {14, 19},  _ ' mnopqr
+  {14, 20}, {14, 21}, {14, 22}, {14, 23}, {14, 24}, {14, 25},  _ ' stuvwx
+  {14, 26}, {14, 27},                                          _ ' yz
+  {18, 17}, {18, 18}, {18, 19}, {18, 20}, {18, 21}             _ ' {|}~©
+}
+
+' -- ---------------------------------------------------------------------- --
+' font routines
+
+SUB Copy_Font(from_addr AS UInteger, to_addr AS UInteger)  ' memory addresses
+	' NB: actual font data starts at ' ' character - i.e. 32*8 bytes on
+	MemCopy(from_addr + CHAR_OFFSET, to_addr + CHAR_OFFSET, FONT_SIZE)
+END SUB
+
+DIM user_font AS UInteger = SYS_CHARS_DEFAULT
+
+SUB Set_Font(font_base AS UInteger)
+	sys_chars = font_base
+END SUB
+
+SUB Setup_Font()
+	user_font = sys_chars
+	PRINT AT 2, 1; user_font
+
+	' check if current font (CHARS) = default, or already using user font
+	IF user_font = SYS_CHARS_DEFAULT THEN
+		PRINT AT 3, 1; USER_FONT_AREA
+		' copy system font into user font
+		Copy_Font(SYS_CHARS_DEFAULT, USER_FONT_AREA)
+
+		' set user font
+		user_font = USER_FONT_AREA
+		Set_Font(user_font)
+	END IF
+	' else already using user font
+END SUB
+
+' -- ---------------------------------------------------------------------- --
+' Screen layout Subroutines
+
+SUB Draw_Screen_Border()
+	PRINT AT 0, 0; "/------------------------------\\"
+	FOR row = 1 TO 22
+		PRINT AT row, 0; "|"
+		PRINT AT row, 31; "|"
+	NEXT row
+	PRINT AT 23, 0; "\\------------------------------"
+END SUB
+
+SUB Draw_Edit_Panel(left AS UByte, top AS UByte)
+	PRINT AT top, left; "+--------+"
+	DIM bottom AS UByte = top + 9
+	DIM right AS UByte = left + 9
+	FOR row = top + 1 TO bottom - 1
+		PRINT AT row, left; "|"
+		PRINT AT row, right; "|"
+	NEXT row
+	PRINT AT bottom, left; "+--------+"
+END SUB
+
+SUB Draw_Preview_Panel(left AS UByte, top AS UByte)
+	PRINT AT top, left; "+-+"
+	DIM bottom AS UByte = top + 2
+	DIM right AS UByte = left + 2
+	FOR row = top + 1 TO bottom - 1
+		PRINT AT row, left; "|"
+		PRINT AT row, right; "|"
+	NEXT row
+	PRINT AT bottom, left; "+-+"
+END SUB
+
+SUB Draw_Edit_to_Preview_Lines()
+	' draw edit panel top right to preview panel top left
+	DIM line1_startx AS Integer = (EDIT_PANEL_LEFT + EDIT_PANEL_WIDTH) * 8
+	DIM line1_starty AS Integer = PLOT_HEIGHT - (EDIT_PANEL_TOP + 1) * 8
+	DIM line1_endx AS Integer = (PREVIEW_PANEL_LEFT * 8) - line1_startx
+	DIM line1_endy AS Integer = PLOT_HEIGHT - (PREVIEW_PANEL_TOP * 8) - line1_starty
+
+	'PRINT AT 0, 0; line1_startx; " "; line1_starty; " "; line1_endx; " "; line1_endy
+	PLOT line1_startx, line1_starty : DRAW line1_endx, line1_endy
+
+	' draw edit window bottom right to preview panel bottom left
+	DIM line2_startx AS Integer = (EDIT_PANEL_LEFT + EDIT_PANEL_WIDTH) * 8
+	DIM line2_starty AS Integer = PLOT_HEIGHT - (EDIT_PANEL_TOP + EDIT_PANEL_HEIGHT) * 8 + 4
+	DIM line2_endx AS Integer = PREVIEW_PANEL_LEFT * 8 - line2_startx
+	DIM line2_endy AS Integer = PLOT_HEIGHT - (PREVIEW_PANEL_TOP + PREVIEW_PANEL_HEIGHT) * 8 + 4 - line2_starty
+
+	' PRINT AT 1, 0; line2_startx; " "; line2_starty; " "; line2_endx; " "; line2_endy
+	PLOT line2_startx, line2_starty : DRAW line2_endx, line2_endy
+END SUB
+
+SUB Draw_Divider(row AS UByte)
+	PRINT AT row, 0; "+------------------------------+"
+END SUB
+
+SUB Draw_Character_Row(row AS UByte)
+	PRINT AT row, 1; INK WHITE; PAPER BLACK; "                              "
+END SUB
+
+SUB Draw_Characters()
+	DIM row AS UByte
+	DIM col AS UByte
+
+	Draw_Character_Row(12)
+	Draw_Character_Row(14)
+	Draw_Character_Row(16)
+	Draw_Character_Row(18)
+
+	' set_font(SYS_CHARS_DEFAULT);  // start with ROM font
+	FOR char = CODE(" ") TO CODE("\*")
+		' location(0) = 1 : location(1) = 1 ' char_locn(char - CHAR_OFFSET)
+		row = char_locn(char - CHAR_OFFSET,0) : col = char_locn(char - CHAR_OFFSET,1)
+		IF row <> 0 THEN
+			PRINT AT row, col; INK WHITE; PAPER BLACK; CHR(char)
+		END IF
+	NEXT char
+
+	' set_font(user_font);  // switch to user font
+	FOR char = CODE(" ") TO CODE("\*")
+		row = char_locn(char - CHAR_OFFSET,0) : col = char_locn(char - CHAR_OFFSET,1)
+		IF row <> 0 THEN
+			PRINT AT row+1, col; CHR(char)
+		END IF
+	NEXT char
+END SUB
+
+SUB Draw_Main_Screen()
+    PRINT AT 1, 1; "Fontedit"
+
+    Draw_Screen_Border()
+    Draw_Edit_Panel(EDIT_PANEL_LEFT, EDIT_PANEL_TOP)
+    Draw_Preview_Panel(PREVIEW_PANEL_LEFT, PREVIEW_PANEL_TOP)
+	Draw_Edit_to_Preview_Lines()
+	Draw_Divider(EDIT_PANEL_TOP + EDIT_PANEL_HEIGHT)
+	Draw_Characters()
+	Draw_Divider(20)
+END SUB
+
+' -- ---------------------------------------------------------------------- --
+REM Main routine
+
+BORDER BLACK
+
+PAPER WHITE : INK BLACK : CLS
+
+Setup_Font()
+Set_Font(SYS_CHARS_DEFAULT)
+
+Draw_Main_Screen()
+
+' switch to font being edited
+Set_Font(user_font)
+
+DIM character AS String
+DIM last_character AS String
+DO  ' edit loop
+	' print instructions. NB: 0x7F is copyright character
+	PRINT AT NOTE_PANEL_TOP+1, NOTE_PANEL_LEFT+2; "Hit char to edit SYMB+E=\*   " : ' \* == (c)
+	PRINT AT NOTE_PANEL_TOP+2, NOTE_PANEL_LEFT+2; "                 SYMB+W=menu"
+
+	DO
+		character = INKEY$
+	LOOP WHILE character = ""
+	PRINT AT 2, 1; "key:"; CODE(character); " "
+	'	rowcol location;
+LOOP WHILE character <> " "

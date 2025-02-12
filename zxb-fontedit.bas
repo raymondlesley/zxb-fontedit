@@ -81,12 +81,10 @@ END SUB
 
 SUB Setup_Font()
 	user_font = sys_chars
-	PRINT AT 2, 1; user_font
 
 	' check if current font (CHARS) = default, or already using user font
 	IF user_font = SYS_CHARS_DEFAULT THEN
 		PRINT AT 3, 1; USER_FONT_AREA
-		' copy system font into user font
 		Copy_Font(SYS_CHARS_DEFAULT, USER_FONT_AREA)
 
 		' set user font

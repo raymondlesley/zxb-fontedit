@@ -55,8 +55,8 @@ DIM sys_chars AS UInteger AT $5C36  ' 'CHARS' sytem variable - pointer to font
 '":", ";", "<", "="< ">", "?", "@"
 '}
 
-DIM inkey_map(255) AS UByte
-inkey_map(200) = 0
+'DIM inkey_map(255) AS UByte
+'inkey_map(200) = 0
 
 ' -- ---------------------------------------------------------------------- --
 ' on-screen location for each character - starting with ' '
@@ -274,7 +274,7 @@ SUB Edit_Character(character AS UByte)
 		DO
 			keypress = INKEY$
 		LOOP WHILE keypress = ""
-		' PRINT AT 2, 1; keypress; "="; CODE(keypress); "  "
+		PRINT AT 2, 1; "key="; CODE(keypress); "  "
 
 		IF grid(x, y) = 1 THEN
 			PRINT AT EDIT_PANEL_TOP+y+1, EDIT_PANEL_LEFT+x+1; INK WHITE; PAPER BLACK; " "
@@ -306,6 +306,36 @@ SUB Edit_Character(character AS UByte)
 				x = x + 1
 				bitmask = bitmask >> 1
 			END IF
+		ELSEIF keypress = " " THEN
+			' flip bit
+			IF grid(x, y) = 1 THEN
+				' bitmap(y) bAND bitmask
+				' bit set: reset it
+				PRINT AT y + EDIT_PANEL_TOP + 1, x + EDIT_PANEL_LEFT + 1; INK BLACK; PAPER WHITE; " "
+				bitmap(y) = bitmap(y) bAND bNOT bitmask
+				grid(x, y) = 0
+				'unplot_xy(PREVIEW_PANEL_X+x, PREVIEW_PANEL_Y+y);
+				PLOT OVER 1; PREVIEW_PANEL_X + x, PLOT_HEIGHT - (PREVIEW_PANEL_Y + y) - 1
+			ELSE
+				' bit reset: set it
+				PRINT AT y + EDIT_PANEL_TOP + 1, x + EDIT_PANEL_LEFT + 1; INK WHITE; PAPER BLACK; " "
+				bitmap(y) = bitmap(y) bOR bitmask
+				grid(x, y) = 1
+				'plot_xy(PREVIEW_PANEL_X+x, PREVIEW_PANEL_Y+y);
+				PLOT INK BLACK; PREVIEW_PANEL_X + x, PLOT_HEIGHT - (PREVIEW_PANEL_Y + y) - 1
+			END IF
+		ELSEIF keypress = CHR(INKEY_SYMB_W) THEN
+			' save
+			character_location = chars + character_offset : ' back to bitmap start
+
+			FOR row = 0 TO 7
+				' get pixel row
+				' output pixels
+				'*character_location++ = bitmap[row];
+				POKE character_location, bitmap(row)
+				character_location = character_location + 1
+			NEXT row
+			EXIT DO
 		END IF
 
 		DO LOOP WHILE INKEY$ <> ""
@@ -360,14 +390,14 @@ DO  ' edit loop
 		PRINT AT character_row, character_col; FLASH 1; keypress
 		Edit_Character(CODE(keypress))
 		last_keypress = keypress
-	ELSEIF CODE(keypress) = INKEY_SYMB_E THEN
+	ELSEIF keypress = CHR(INKEY_SYMB_E) THEN
 		' special case: (c) symbol
 		char_index = CODE("\*") - CHAR_OFFSET
 		character_row = char_locn(char_index, 0) + 1
 		character_col = char_locn(char_index, 1)
 		PRINT AT character_row, character_col; FLASH 1; "\*"
 		Edit_Character(CODE("\*"))
-		last_keypress = keypress
+		last_keypress = "\*"
 	END IF
 
 	IF last_keypress <> "" THEN

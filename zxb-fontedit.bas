@@ -5,7 +5,8 @@
 '
 ' -- ---------------------------------------------------------------------- --
 
-#include <memcopy.bas>
+#include <input.bas>
+'#include <memcopy.bas>
 
 ' -- ---------------------------------------------------------------------- --
 ' Colour constants
@@ -14,7 +15,6 @@ DIM BLACK AS UByte = 0
 DIM WHITE AS UByte = 7
 
 ' Screen position constants
-' DIM PLOT_WIDTH AS Integer = 256
 #define PLOT_WIDTH 256
 #define PLOT_HEIGHT 192
 
@@ -40,6 +40,7 @@ DIM WHITE AS UByte = 7
 DIM sys_chars AS UInteger AT $5C36  ' 'CHARS' sytem variable - pointer to font
 #define SYS_CHARS_DEFAULT  $3C00
 DIM sys_rasp AS UByte AT $5C38      ' 'RASP' system variable - length of warning buzz
+DIM sys_err_nr AS UByte AT 23610    ' 'ERR_NR' system variable - error number
 
 #define INKEY_SYMB_Q 199
 #define INKEY_SYMB_W 201
@@ -91,7 +92,11 @@ END SUB
 
 SUB Copy_Font(from_addr AS UInteger, to_addr AS UInteger)  ' memory addresses
 	' NB: actual font data starts at ' ' character - i.e. 32*8 bytes on
-	MemCopy(from_addr + FONT_OFFSET, to_addr + FONT_OFFSET, FONT_SIZE)
+	'MemCopy(from_addr + FONT_OFFSET, to_addr + FONT_OFFSET, FONT_SIZE)
+	DIM index AS UInteger
+	FOR index = 0 TO FONT_SIZE-1
+		POKE to_addr+FONT_OFFSET+index, PEEK(from_addr+FONT_OFFSET+index)
+	NEXT index
 END SUB
 
 DIM user_font AS UInteger = SYS_CHARS_DEFAULT
@@ -105,7 +110,6 @@ SUB Setup_Font()
 
 	' check if current font (CHARS) = default, or already using user font
 	IF user_font = SYS_CHARS_DEFAULT THEN
-		PRINT AT 3, 1; USER_FONT_AREA
 		Copy_Font(SYS_CHARS_DEFAULT, USER_FONT_AREA)
 
 		' set user font
@@ -120,6 +124,7 @@ END SUB
 
 SUB Draw_Screen_Border()
 	PRINT AT 0, 0; INK WHITE; PAPER BLACK; "/------------------------------\\"
+	DIM row AS UByte
 	FOR row = 1 TO 22
 		PRINT AT row, 0; INK WHITE; PAPER BLACK; "|"
 		PRINT AT row, 31; INK WHITE; PAPER BLACK; "|"
@@ -131,6 +136,7 @@ SUB Draw_Edit_Panel(left AS UByte, top AS UByte)
 	PRINT AT top, left; "+--------+"
 	DIM bottom AS UByte = top + 9
 	DIM right AS UByte = left + 9
+	DIM row AS UByte
 	FOR row = top + 1 TO bottom - 1
 		PRINT AT row, left; "|"
 		PRINT AT row, right; "|"
@@ -142,6 +148,7 @@ SUB Draw_Preview_Panel(left AS UByte, top AS UByte)
 	PRINT AT top, left; "+-+"
 	DIM bottom AS UByte = top + 2
 	DIM right AS UByte = left + 2
+	DIM row AS UByte
 	FOR row = top + 1 TO bottom - 1
 		PRINT AT row, left; "|"
 		PRINT AT row, right; "|"
@@ -156,7 +163,6 @@ SUB Draw_Edit_to_Preview_Lines()
 	DIM line1_endx AS Integer = (PREVIEW_PANEL_LEFT * 8) - line1_startx
 	DIM line1_endy AS Integer = PLOT_HEIGHT - (PREVIEW_PANEL_TOP * 8) - line1_starty
 
-	'PRINT AT 0, 0; line1_startx; " "; line1_starty; " "; line1_endx; " "; line1_endy
 	PLOT line1_startx, line1_starty : DRAW line1_endx, line1_endy
 
 	' draw edit window bottom right to preview panel bottom left
@@ -165,7 +171,6 @@ SUB Draw_Edit_to_Preview_Lines()
 	DIM line2_endx AS Integer = PREVIEW_PANEL_LEFT * 8 - line2_startx
 	DIM line2_endy AS Integer = PLOT_HEIGHT - (PREVIEW_PANEL_TOP + PREVIEW_PANEL_HEIGHT) * 8 + 4 - line2_starty
 
-	' PRINT AT 1, 0; line2_startx; " "; line2_starty; " "; line2_endx; " "; line2_endy
 	PLOT line2_startx, line2_starty : DRAW line2_endx, line2_endy
 END SUB
 
@@ -180,6 +185,7 @@ END SUB
 SUB Draw_Characters()
 	DIM row AS UByte
 	DIM col AS UByte
+	DIM char AS UByte
 
 	Draw_Character_Row(12)
 	Draw_Character_Row(14)
@@ -223,19 +229,19 @@ SUB Edit_Character(character AS UByte)
 	DIM chars AS UInteger = user_font : ' (char *)*(sys_chars); // default = 0x3C00
 	DIM character_offset AS UInteger = CAST(UInteger, character) << 3 : ' 8* as each char takes 8 bytes
 	DIM character_location AS UInteger = (chars + character_offset)
-	' PRINT AT EDIT_PANEL_TOP+10, 1; chars; " "; character_offset; " "; character_location
 
 	DIM bitmap(0 TO 7) AS UByte
 	DIM grid(0 TO 7, 0 TO 7) AS UByte
 	DIM bitmask AS UByte
 
+	DIM row AS UByte
 	FOR row = 0 TO 7
 		' get pixel row
 		' output pixels
 		bitmap(row) = PEEK(character_location)
-		' PRINT AT row+2, 1; bitmap(row); "  "
 
 		bitmask = $80 : ' start with leftmost bit
+		DIM column AS UByte
 		FOR column = 0 TO 7
 			IF bitmap(row) bAND bitmask THEN
 				' bit set
@@ -275,7 +281,7 @@ SUB Edit_Character(character AS UByte)
 		DO
 			keypress = INKEY$
 		LOOP WHILE keypress = ""
-		PRINT AT 2, 1; "key="; CODE(keypress); "  "
+		' PRINT AT 2, 1; "key="; CODE(keypress); "  "
 
 		IF grid(x, y) = 1 THEN
 			PRINT AT EDIT_PANEL_TOP+y+1, EDIT_PANEL_LEFT+x+1; INK WHITE; PAPER BLACK; " "
@@ -315,14 +321,12 @@ SUB Edit_Character(character AS UByte)
 				PRINT AT y + EDIT_PANEL_TOP + 1, x + EDIT_PANEL_LEFT + 1; INK BLACK; PAPER WHITE; " "
 				bitmap(y) = bitmap(y) bAND bNOT bitmask
 				grid(x, y) = 0
-				'unplot_xy(PREVIEW_PANEL_X+x, PREVIEW_PANEL_Y+y);
 				PLOT OVER 1; PREVIEW_PANEL_X + x, PLOT_HEIGHT - (PREVIEW_PANEL_Y + y) - 1
 			ELSE
 				' bit reset: set it
 				PRINT AT y + EDIT_PANEL_TOP + 1, x + EDIT_PANEL_LEFT + 1; INK WHITE; PAPER BLACK; " "
 				bitmap(y) = bitmap(y) bOR bitmask
 				grid(x, y) = 1
-				'plot_xy(PREVIEW_PANEL_X+x, PREVIEW_PANEL_Y+y);
 				PLOT INK BLACK; PREVIEW_PANEL_X + x, PLOT_HEIGHT - (PREVIEW_PANEL_Y + y) - 1
 			END IF
 		ELSEIF keypress = CHR(INKEY_SYMB_W) THEN
@@ -330,9 +334,7 @@ SUB Edit_Character(character AS UByte)
 			character_location = chars + character_offset : ' back to bitmap start
 
 			FOR row = 0 TO 7
-				' get pixel row
-				' output pixels
-				'*character_location++ = bitmap[row];
+				' store pixel row
 				POKE character_location, bitmap(row)
 				character_location = character_location + 1
 			NEXT row
@@ -402,6 +404,26 @@ FUNCTION Do_Menu() AS UByte
 	return choice
 END FUNCTION
 
+SUB Do_Load()
+	PRINT AT NOTE_PANEL_TOP, NOTE_PANEL_LEFT+1; "                 "
+	PRINT AT NOTE_PANEL_TOP, NOTE_PANEL_LEFT+1;
+	LOAD "" CODE (user_font + FONT_OFFSET), FONT_SIZE
+	IF sys_err_nr = 26 THEN
+		Do_Beep()
+		PRINT AT NOTE_PANEL_TOP+1, NOTE_PANEL_LEFT+2; FLASH 1; "Error:"; sys_err_nr; " "
+		DO LOOP WHILE INKEY$ <> ""
+		DO LOOP WHILE INKEY$ = ""
+	END IF
+	PRINT AT NOTE_PANEL_TOP, NOTE_PANEL_LEFT+1;
+END SUB
+
+SUB Do_Save(font_name AS String)
+	'SAVE font_name CODE (user_font + FONT_OFFSET), FONT_SIZE
+	DIM font_address AS UInteger = user_font + FONT_OFFSET
+	SAVE font_name CODE font_address, FONT_SIZE
+END SUB
+
+
 ' -- ---------------------------------------------------------------------- --
 REM Main routine
 
@@ -425,8 +447,8 @@ DIM character_col AS UByte
 
 DO  ' edit loop
 	' print instructions. NB: 0x7F is copyright character
-	PRINT AT NOTE_PANEL_TOP+1, NOTE_PANEL_LEFT+2; "Hit char to edit SYMB+E=\*   " : ' \* == (c)
-	PRINT AT NOTE_PANEL_TOP+2, NOTE_PANEL_LEFT+2; "                 SYMB+W=menu"
+	PRINT AT NOTE_PANEL_TOP+1, NOTE_PANEL_LEFT+1; " Hit char to edit SYMB+E=\*    " : ' \* == (c)
+	PRINT AT NOTE_PANEL_TOP+2, NOTE_PANEL_LEFT+1; "                  SYMB+W=menu "
 
 	DO
 		keypress = INKEY$
@@ -452,17 +474,19 @@ DO  ' edit loop
 		DIM menu_option AS UByte = Do_Menu()
 		IF menu_option = MENU_LOAD THEN
 			' load
-			'do_load();
+			Do_Load()
 		ELSEIF menu_option = MENU_SAVE THEN
 			' save
-			'char savename[11];  // 10 characters + null terminator
-			'ubyte max_length = 10;
-			'print_string_at(22, 2, "Save name:           ");
-			'input_string(22, 13, savename, 10);
-			'do_save(savename);
+			DIM savename AS String
+			DIM max_length AS UByte = 10
+			PRINT AT 22, 2; "Save name:           "
+			PRINT AT 22, 13;
+			savename = INPUT(max_length)
+			PRINT AT 22, 2;
+			Do_Save(savename)
 		ELSEIF menu_option = MENU_RESET THEN
 			' reset
-			'copy_font((ubyte *)SYS_CHARS_DEFAULT, (ubyte *)*sys_chars);
+			Copy_Font(SYS_CHARS_DEFAULT, sys_chars)
 		ELSEIF menu_option = MENU_QUIT THEN
 			' quit
 			EXIT DO

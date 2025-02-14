@@ -40,6 +40,24 @@ DIM WHITE AS UByte = 7
 DIM sys_chars AS UInteger AT $5C36  ' 'CHARS' sytem variable - pointer to font
 #define SYS_CHARS_DEFAULT  $3C00
 
+#define INKEY_SYMB_Q 199
+#define INKEY_SYMB_W 201
+#define INKEY_SYMB_E 200
+
+#define INKEY_LEFT 8
+#define INKEY_DOWN 10
+#define INKEY_UP 11
+#define INKEY_RIGHT 9
+
+'DIM character_map(32 TO 127) AS String => { _
+'" ", "!", "\"", "#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/", _
+'"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", _
+'":", ";", "<", "="< ">", "?", "@"
+'}
+
+DIM inkey_map(255) AS UByte
+inkey_map(200) = 0
+
 ' -- ---------------------------------------------------------------------- --
 ' on-screen location for each character - starting with ' '
 ' array [96 printable characters x 2 values] = {row, col}
@@ -65,12 +83,13 @@ DIM char_locn(0 TO 95, 0 TO 1) AS UByte => {          _
   {18, 17}, {18, 18}, {18, 19}, {18, 20}, {18, 21}             _ ' {|}~©
 }
 
+
 ' -- ---------------------------------------------------------------------- --
 ' font routines
 
 SUB Copy_Font(from_addr AS UInteger, to_addr AS UInteger)  ' memory addresses
 	' NB: actual font data starts at ' ' character - i.e. 32*8 bytes on
-	MemCopy(from_addr + CHAR_OFFSET, to_addr + CHAR_OFFSET, FONT_SIZE)
+	MemCopy(from_addr + FONT_OFFSET, to_addr + FONT_OFFSET, FONT_SIZE)
 END SUB
 
 DIM user_font AS UInteger = SYS_CHARS_DEFAULT
@@ -98,12 +117,12 @@ END SUB
 ' Screen layout Subroutines
 
 SUB Draw_Screen_Border()
-	PRINT AT 0, 0; "/------------------------------\\"
+	PRINT AT 0, 0; INK WHITE; PAPER BLACK; "/------------------------------\\"
 	FOR row = 1 TO 22
-		PRINT AT row, 0; "|"
-		PRINT AT row, 31; "|"
+		PRINT AT row, 0; INK WHITE; PAPER BLACK; "|"
+		PRINT AT row, 31; INK WHITE; PAPER BLACK; "|"
 	NEXT row
-	PRINT AT 23, 0; "\\------------------------------"
+	PRINT AT 23, 0; INK WHITE; PAPER BLACK; "\\------------------------------/";
 END SUB
 
 SUB Draw_Edit_Panel(left AS UByte, top AS UByte)
@@ -149,7 +168,7 @@ SUB Draw_Edit_to_Preview_Lines()
 END SUB
 
 SUB Draw_Divider(row AS UByte)
-	PRINT AT row, 0; "+------------------------------+"
+	PRINT AT row, 0; INK WHITE; PAPER BLACK; "+------------------------------+"
 END SUB
 
 SUB Draw_Character_Row(row AS UByte)
@@ -195,6 +214,114 @@ SUB Draw_Main_Screen()
 	Draw_Divider(20)
 END SUB
 
+SUB Edit_Character(character AS UByte)
+	' First: show character in preview panel
+	PRINT AT PREVIEW_PANEL_TOP+1, PREVIEW_PANEL_LEFT+1; CHR(character)
+
+	' 	Second: load bitmap into edit panel
+	DIM chars AS UInteger = user_font : ' (char *)*(sys_chars); // default = 0x3C00
+	DIM character_offset AS UInteger = CAST(UInteger, character) << 3 : ' 8* as each char takes 8 bytes
+	DIM character_location AS UInteger = (chars + character_offset)
+	' PRINT AT EDIT_PANEL_TOP+10, 1; chars; " "; character_offset; " "; character_location
+
+	DIM bitmap(0 TO 7) AS UByte
+	DIM grid(0 TO 7, 0 TO 7) AS UByte
+	DIM bitmask AS UByte
+
+	FOR row = 0 TO 7
+		' get pixel row
+		' output pixels
+		bitmap(row) = PEEK(character_location)
+		' PRINT AT row+2, 1; bitmap(row); "  "
+
+		bitmask = $80 : ' start with leftmost bit
+		FOR column = 0 TO 7
+			IF bitmap(row) bAND bitmask THEN
+				' bit set
+				PRINT AT row + EDIT_PANEL_TOP + 1, column + EDIT_PANEL_LEFT + 1; INK WHITE; PAPER BLACK; " "
+				grid(column, row) = 1
+			ELSE
+				' bit reset
+				PRINT AT row + EDIT_PANEL_TOP + 1, column + EDIT_PANEL_LEFT + 1; INK BLACK; PAPER WHITE; " "
+				grid(column, row) = 0
+			END IF
+
+			' next pixel
+			bitmask = bitmask >> 1
+		NEXT column
+
+		' next row
+		character_location = character_location + 1
+	NEXT row
+
+	' Third: show edit mode commands in lower panel
+	PRINT AT NOTE_PANEL_TOP+1, NOTE_PANEL_LEFT+2; "5678=move;    space=flip    "
+	PRINT AT NOTE_PANEL_TOP+2, NOTE_PANEL_LEFT+2; "SYMB+W=write; SYMB+Q=cancel "
+	DIM x AS UByte = 0
+	DIM y AS UByte = 0
+	bitmask = 0x80
+
+	' Fourth: start edit loop
+	DIM keypress AS String
+	DO  ' edit loop
+		' show cursor
+		IF grid(x, y) = 1 THEN
+			PRINT AT EDIT_PANEL_TOP+y+1, EDIT_PANEL_LEFT+x+1; INK WHITE; PAPER BLACK; "+"
+		ELSE
+			PRINT AT EDIT_PANEL_TOP+y+1, EDIT_PANEL_LEFT+x+1; INK BLACK; PAPER WHITE; "+"
+		END IF
+
+		DO
+			keypress = INKEY$
+		LOOP WHILE keypress = ""
+		' PRINT AT 2, 1; keypress; "="; CODE(keypress); "  "
+
+		IF grid(x, y) = 1 THEN
+			PRINT AT EDIT_PANEL_TOP+y+1, EDIT_PANEL_LEFT+x+1; INK WHITE; PAPER BLACK; " "
+		ELSE
+			PRINT AT EDIT_PANEL_TOP+y+1, EDIT_PANEL_LEFT+x+1; INK BLACK; PAPER WHITE; " "
+		END IF
+
+
+		'	rowcol location;
+		IF keypress = "5" OR keypress = CHR(INKEY_LEFT) THEN
+			' left
+			IF x > 0 THEN
+				x = x - 1
+				bitmask  = bitmask << 1
+			END IF
+		ELSEIF keypress = "6" OR keypress = CHR(INKEY_DOWN) THEN
+			' down
+			IF y < 7 THEN
+				y = y + 1
+			END IF
+		ELSEIF keypress = "7" OR keypress = CHR(INKEY_UP) THEN
+			' up
+			IF y > 0 THEN
+				y = y - 1
+			END IF
+		ELSEIF keypress = "8" OR keypress = CHR(INKEY_RIGHT) THEN
+			' right
+			IF x < 7 THEN
+				x = x + 1
+				bitmask = bitmask >> 1
+			END IF
+		END IF
+
+		DO LOOP WHILE INKEY$ <> ""
+	LOOP WHILE keypress <> CHR(INKEY_SYMB_Q)
+
+	' Last: tidy up
+	FOR row = 0 TO 7
+		FOR column = 0 TO 7
+			PRINT AT row + EDIT_PANEL_TOP + 1, column + EDIT_PANEL_LEFT + 1; " "
+		NEXT column
+	NEXT row
+	PRINT AT PREVIEW_PANEL_TOP+1, PREVIEW_PANEL_LEFT+1; " "
+	PRINT AT NOTE_PANEL_TOP+1, NOTE_PANEL_LEFT+1; "                            "
+	PRINT AT NOTE_PANEL_TOP+2, NOTE_PANEL_LEFT+1; "                            "
+END SUB
+
 ' -- ---------------------------------------------------------------------- --
 REM Main routine
 
@@ -210,16 +337,47 @@ Draw_Main_Screen()
 ' switch to font being edited
 Set_Font(user_font)
 
-DIM character AS String
-DIM last_character AS String
+DIM keypress AS String
+DIM last_keypress AS String
+DIM char_index AS UByte
+DIM character_row AS UByte
+DIM character_col AS UByte
+
 DO  ' edit loop
 	' print instructions. NB: 0x7F is copyright character
 	PRINT AT NOTE_PANEL_TOP+1, NOTE_PANEL_LEFT+2; "Hit char to edit SYMB+E=\*   " : ' \* == (c)
 	PRINT AT NOTE_PANEL_TOP+2, NOTE_PANEL_LEFT+2; "                 SYMB+W=menu"
 
 	DO
-		character = INKEY$
-	LOOP WHILE character = ""
-	PRINT AT 2, 1; "key:"; CODE(character); " "
+		keypress = INKEY$
+	LOOP WHILE keypress = ""
+	PRINT AT 2, 1; keypress; "="; CODE(keypress); "  "
 	'	rowcol location;
-LOOP WHILE character <> " "
+	IF keypress >= " " AND keypress <= "\*" THEN
+		char_index = CODE(keypress) - CHAR_OFFSET
+		character_row = char_locn(char_index, 0) + 1
+		character_col = char_locn(char_index, 1)
+		PRINT AT character_row, character_col; FLASH 1; keypress
+		Edit_Character(CODE(keypress))
+		last_keypress = keypress
+	ELSEIF CODE(keypress) = INKEY_SYMB_E THEN
+		' special case: (c) symbol
+		char_index = CODE("\*") - CHAR_OFFSET
+		character_row = char_locn(char_index, 0) + 1
+		character_col = char_locn(char_index, 1)
+		PRINT AT character_row, character_col; FLASH 1; "\*"
+		Edit_Character(CODE("\*"))
+		last_keypress = keypress
+	END IF
+
+	IF last_keypress <> "" THEN
+		char_index = CODE(last_keypress) - CHAR_OFFSET
+		character_row = char_locn(char_index, 0) + 1
+		character_col = char_locn(char_index, 1)
+		PRINT AT character_row, character_col; last_keypress
+	END IF
+
+	DO LOOP WHILE INKEY$ <> ""
+LOOP WHILE keypress <> CHR(INKEY_SYMB_Q)
+
+PRINT AT 0, 0;

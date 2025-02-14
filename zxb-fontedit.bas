@@ -39,6 +39,7 @@ DIM WHITE AS UByte = 7
 
 DIM sys_chars AS UInteger AT $5C36  ' 'CHARS' sytem variable - pointer to font
 #define SYS_CHARS_DEFAULT  $3C00
+DIM sys_rasp AS UByte AT $5C38      ' 'RASP' system variable - length of warning buzz
 
 #define INKEY_SYMB_Q 199
 #define INKEY_SYMB_W 201
@@ -48,15 +49,6 @@ DIM sys_chars AS UInteger AT $5C36  ' 'CHARS' sytem variable - pointer to font
 #define INKEY_DOWN 10
 #define INKEY_UP 11
 #define INKEY_RIGHT 9
-
-'DIM character_map(32 TO 127) AS String => { _
-'" ", "!", "\"", "#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/", _
-'"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", _
-'":", ";", "<", "="< ">", "?", "@"
-'}
-
-'DIM inkey_map(255) AS UByte
-'inkey_map(200) = 0
 
 ' -- ---------------------------------------------------------------------- --
 ' on-screen location for each character - starting with ' '
@@ -83,6 +75,16 @@ DIM char_locn(0 TO 95, 0 TO 1) AS UByte => {          _
   {18, 17}, {18, 18}, {18, 19}, {18, 20}, {18, 21}             _ ' {|}~©
 }
 
+
+' -- ---------------------------------------------------------------------- --
+
+CONST beep_freq AS Float = -16.0
+DIM beep_rasp AS Float = sys_rasp
+DIM beep_length AS Float = beep_rasp / 256.0
+
+SUB Do_Beep()
+	BEEP beep_length, beep_freq
+END SUB
 
 ' -- ---------------------------------------------------------------------- --
 ' font routines
@@ -184,16 +186,15 @@ SUB Draw_Characters()
 	Draw_Character_Row(16)
 	Draw_Character_Row(18)
 
-	' set_font(SYS_CHARS_DEFAULT);  // start with ROM font
+	Set_Font(SYS_CHARS_DEFAULT) '  start with ROM font
 	FOR char = CODE(" ") TO CODE("\*")
-		' location(0) = 1 : location(1) = 1 ' char_locn(char - CHAR_OFFSET)
 		row = char_locn(char - CHAR_OFFSET,0) : col = char_locn(char - CHAR_OFFSET,1)
 		IF row <> 0 THEN
 			PRINT AT row, col; INK WHITE; PAPER BLACK; CHR(char)
 		END IF
 	NEXT char
 
-	' set_font(user_font);  // switch to user font
+	Set_Font(user_font) ' switch to user font
 	FOR char = CODE(" ") TO CODE("\*")
 		row = char_locn(char - CHAR_OFFSET,0) : col = char_locn(char - CHAR_OFFSET,1)
 		IF row <> 0 THEN
@@ -353,6 +354,55 @@ SUB Edit_Character(character AS UByte)
 END SUB
 
 ' -- ---------------------------------------------------------------------- --
+
+#define MENU_TOP   2
+#define MENU_LEFT  1
+
+#define MENU_LOAD  1
+#define MENU_SAVE  2
+#define MENU_RESET 3
+#define MENU_QUIT  4
+
+FUNCTION Do_Menu() AS UByte
+	PRINT AT MENU_TOP,   MENU_LEFT; "+-------+"
+	PRINT AT MENU_TOP+1, MENU_LEFT; "| Load  |\\"
+	PRINT AT MENU_TOP+2, MENU_LEFT; "| Save  |\\"
+	PRINT AT MENU_TOP+3, MENU_LEFT; "| Reset |\\"
+	PRINT AT MENU_TOP+4, MENU_LEFT; "| Quit  |\\"
+	PRINT AT MENU_TOP+5, MENU_LEFT; "+-------+\\"
+	PRINT AT MENU_TOP+6, MENU_LEFT; " \\\\\\\\\\\\\\\\\\"
+
+	DIM keypress AS String
+	DO LOOP WHILE INKEY$ <> "" : ' wait for key up
+	DO
+		keypress = INKEY$
+	LOOP WHILE keypress = ""
+
+	DIM choice AS UByte = 0
+	IF keypress = "l" THEN
+		choice = MENU_LOAD
+	ELSEIF keypress = "s" THEN
+		choice = MENU_SAVE
+	ELSEIF keypress = "r" THEN
+		choice = MENU_RESET
+	ELSEIF keypress = "q" THEN
+		choice = MENU_QUIT
+	ELSE
+		Do_Beep()
+	END IF
+
+	PRINT AT MENU_TOP,   MENU_LEFT; "         "
+	PRINT AT MENU_TOP+1, MENU_LEFT; "          "
+	PRINT AT MENU_TOP+2, MENU_LEFT; "          "
+	PRINT AT MENU_TOP+3, MENU_LEFT; "          "
+	PRINT AT MENU_TOP+4, MENU_LEFT; "          "
+	PRINT AT MENU_TOP+5, MENU_LEFT; "          "
+	PRINT AT MENU_TOP+6, MENU_LEFT; "          "
+
+	return choice
+END FUNCTION
+
+' -- ---------------------------------------------------------------------- --
 REM Main routine
 
 BORDER BLACK
@@ -381,8 +431,7 @@ DO  ' edit loop
 	DO
 		keypress = INKEY$
 	LOOP WHILE keypress = ""
-	PRINT AT 2, 1; keypress; "="; CODE(keypress); "  "
-	'	rowcol location;
+	'PRINT AT 2, 1; keypress; "="; CODE(keypress); "  "
 	IF keypress >= " " AND keypress <= "\*" THEN
 		char_index = CODE(keypress) - CHAR_OFFSET
 		character_row = char_locn(char_index, 0) + 1
@@ -398,6 +447,27 @@ DO  ' edit loop
 		PRINT AT character_row, character_col; FLASH 1; "\*"
 		Edit_Character(CODE("\*"))
 		last_keypress = "\*"
+	ELSEIF keypress = CHR(INKEY_SYMB_W) THEN
+		' menu
+		DIM menu_option AS UByte = Do_Menu()
+		IF menu_option = MENU_LOAD THEN
+			' load
+			'do_load();
+		ELSEIF menu_option = MENU_SAVE THEN
+			' save
+			'char savename[11];  // 10 characters + null terminator
+			'ubyte max_length = 10;
+			'print_string_at(22, 2, "Save name:           ");
+			'input_string(22, 13, savename, 10);
+			'do_save(savename);
+		ELSEIF menu_option = MENU_RESET THEN
+			' reset
+			'copy_font((ubyte *)SYS_CHARS_DEFAULT, (ubyte *)*sys_chars);
+		ELSEIF menu_option = MENU_QUIT THEN
+			' quit
+			EXIT DO
+		END IF
+		Draw_Main_Screen()
 	END IF
 
 	IF last_keypress <> "" THEN
@@ -408,6 +478,6 @@ DO  ' edit loop
 	END IF
 
 	DO LOOP WHILE INKEY$ <> ""
-LOOP WHILE keypress <> CHR(INKEY_SYMB_Q)
+LOOP : ' WHILE keypress <> CHR(INKEY_SYMB_Q)
 
 PRINT AT 0, 0;
